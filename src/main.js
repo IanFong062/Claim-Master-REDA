@@ -73,6 +73,11 @@ function saveDraft() {
   saveJson(STORAGE_KEYS.draft, state.claim);
 }
 
+function persistClaimInput() {
+  saveDraft();
+  updateLiveTotals();
+}
+
 function saveHistory(claim) {
   const snapshot = { ...claim, id: crypto.randomUUID(), savedAt: new Date().toISOString() };
   const history = [snapshot, ...state.history.filter((item) => item.id !== claim.id)].slice(0, 50);
@@ -101,6 +106,21 @@ function tripNet(trip) {
   return money(trip.amount) - money(trip.deduction);
 }
 
+function updateLiveTotals() {
+  document.querySelectorAll("[data-grand-total]").forEach((node) => {
+    node.textContent = `Grand Total HK$ ${calculateGrandTotal(state.claim).toFixed(2)}`;
+  });
+}
+
+function updateTripSummary(trip) {
+  const label = document.querySelector(`[data-trip-label="${trip.id}"]`);
+  const total = document.querySelector(`[data-trip-total="${trip.id}"]`);
+  const index = state.claim.trips.findIndex((item) => item.id === trip.id);
+  if (label) label.textContent = `${index + 1}. ${trip.from || "From"} -> ${trip.to || "To"}`;
+  if (total) total.textContent = `HK$ ${tripNet(trip).toFixed(2)}`;
+  updateLiveTotals();
+}
+
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -126,7 +146,7 @@ function field(label, key, type = "text", options = {}) {
     placeholder: options.placeholder || "",
     oninput: (event) => {
       state.claim[key] = event.target.value;
-      setState({ claim: state.claim });
+      persistClaimInput();
     }
   });
   return el("label", { class: "field" }, [el("span", {}, label), input]);
@@ -141,7 +161,8 @@ function tripField(trip, label, key, type = "text", options = {}) {
     placeholder: options.placeholder || "",
     oninput: (event) => {
       trip[key] = event.target.value;
-      setState({ claim: state.claim });
+      persistClaimInput();
+      updateTripSummary(trip);
     }
   });
   return el("label", { class: "field" }, [el("span", {}, label), input]);
@@ -206,7 +227,7 @@ function renderClaim() {
         button("Add Trip", () => addTrip(), "secondary", { disabled: state.claim.trips.length >= templateMapping.maxTrips + 1 })
       ]),
       el("section", { class: "sticky-total" }, [
-        el("span", {}, `Grand Total HK$ ${calculateGrandTotal(state.claim).toFixed(2)}`),
+        el("span", { dataset: { grandTotal: "true" } }, `Grand Total HK$ ${calculateGrandTotal(state.claim).toFixed(2)}`),
         button("Preview", () => setState({ view: "preview" }), overLimit ? "disabled" : "primary", { disabled: overLimit })
       ]),
       renderSuggestionLists()
@@ -218,8 +239,8 @@ function renderTripCard(trip, index) {
   const expanded = state.editingTripId === trip.id;
   return el("article", { class: "trip-card" }, [
     el("button", { class: "trip-summary", onclick: () => setState({ editingTripId: expanded ? null : trip.id }) }, [
-      el("span", {}, `${index + 1}. ${trip.from || "From"} → ${trip.to || "To"}`),
-      el("strong", {}, `HK$ ${tripNet(trip).toFixed(2)}`)
+      el("span", { dataset: { tripLabel: trip.id } }, `${index + 1}. ${trip.from || "From"} -> ${trip.to || "To"}`),
+      el("strong", { dataset: { tripTotal: trip.id } }, `HK$ ${tripNet(trip).toFixed(2)}`)
     ]),
     expanded
       ? el("div", { class: "trip-editor" }, [
@@ -233,7 +254,8 @@ function renderTripCard(trip, index) {
             el("select", {
               onchange: (event) => {
                 trip.transportType = event.target.value;
-                setState({ claim: state.claim });
+                persistClaimInput();
+                updateTripSummary(trip);
               }
             }, ["MTR", "Bus", "Van", "Taxi", "Other"].map((item) => el("option", { value: item, selected: trip.transportType === item }, item)))
           ]),
